@@ -1,10 +1,16 @@
-langchain
-openai
-sqlalchemy
-pymysql
-python-dotenv
-
+# Database
 sqlalchemy>=2.0.20
 pymysql>=1.1.0
 mysql-connector-python>=8.1.0
+
+# AI / LLM
+langchain>=0.2.0
 langchain_community>=0.1.25
+ollama>=0.0.7
+
+# Web app
+streamlit>=1.25.0
+pandas>=2.0.3
+
+# Environment variables
+python-dotenv>=1.0.0
