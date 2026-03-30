@@ -28,24 +28,35 @@ if st.button("Execute") and user_query.strip() != "":
             "result": f"⚠️ Error: {e}"
         })
 
-st.subheader("Query History")
+st.subheader("📊 Query History")
 
-# Display each query nicely
 for entry in reversed(st.session_state.history):
-    with st.expander(f"💬 Query: {entry['query']}", expanded=True):
-        # If result is a list of tuples (rows), show as DataFrame
-        if isinstance(entry["result"], list):
-            try:
-                df = pd.DataFrame(entry["result"])
-                if df.empty:
-                    st.info("✅ Query executed successfully (No rows returned)")
-                else:
-                    st.dataframe(df)
-            except Exception:
-                st.write(entry["result"])
-        # If result is a string (error or success)
-        else:
-            if "error" in str(entry["result"]).lower():
-                st.error(entry["result"])
+    with st.expander(f"💬 {entry['query']}", expanded=True):
+
+        result = entry["result"]
+
+        # ✅ TABLE OUTPUT (SELECT queries)
+        if isinstance(result, list):
+            if len(result) == 0:
+                st.info("📭 No data found")
             else:
-                st.success(entry["result"])
+        # ✅ First row = column names, rest = data
+               columns = result[0]
+               rows = result[1:]
+
+               df = pd.DataFrame(rows, columns=columns)
+
+               st.dataframe(df, use_container_width=True)
+
+        # ✅ STRING OUTPUT (INSERT/UPDATE/ERROR)
+        else:
+            result_str = str(result)
+
+            if "❌" in result_str or "error" in result_str.lower():
+                st.error(result_str)
+
+            elif "✅" in result_str:
+                st.success(result_str)
+
+            else:
+                st.info(result_str)

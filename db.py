@@ -32,17 +32,36 @@ def ensure_database_and_tables():
                 score FLOAT
             )
         """))
-
+        
 def run_query(query):
-    ensure_database_and_tables()
     try:
-        with engine.begin() as conn:
-            result = conn.execute(text(query))
-            if result.returns_rows:
-                return result.fetchall()
-            return "Query executed successfully"
+        with engine.connect() as conn:
+            total_rows = 0
+            final_result = None
+
+            for q in query.split(";"):
+                if q.strip():
+                    result = conn.execute(text(q))
+
+                    # ✅ If SELECT query → fetch data with column names
+                    if q.strip().lower().startswith("select"):
+                        rows = result.fetchall()
+                        columns = result.keys()
+                        final_result = [columns] + rows
+                    else:
+                        total_rows += result.rowcount
+
+            conn.commit()
+
+        if final_result:
+            return final_result
+        return f"✅ Done ({total_rows} rows affected)"
+
     except Exception as e:
-        return f"Database error: {e}"
+        return f"❌ Query failed: {e}"
+
+    except Exception as e:
+        return f"❌ Query failed: {e}"
 
 def get_schema():
     ensure_database_and_tables()

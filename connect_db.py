@@ -1,19 +1,24 @@
 import mysql.connector
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env
+load_dotenv()
 
 conn = mysql.connector.connect(
-    host="localhost",
-    user="yashwant",
-    password="1234",
-    database="yashwant_db",
-    unix_socket="/var/run/mysqld/mysqld.sock"
+    host=os.getenv("DB_HOST"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    database=os.getenv("DB_NAME"),
+    unix_socket=os.getenv("DB_SOCKET")
 )
 
 cursor = conn.cursor()
 
+# Example query
 cursor.execute("SELECT * FROM student;")
 rows = cursor.fetchall()
 
-print("Data in student table:")
 for row in rows:
     print(row)
 
