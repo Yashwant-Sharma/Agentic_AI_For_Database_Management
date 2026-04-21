@@ -1,3 +1,8 @@
 def validate_query(query):
-    # Allow all queries
+    forbidden = ["DROP", "TRUNCATE"]
+
+    for word in forbidden:
+        if word in query.upper():
+            return False
+
     return True

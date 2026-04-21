@@ -32,33 +32,43 @@ def ensure_database_and_tables():
                 score FLOAT
             )
         """))
-        
+
 def run_query(query):
     try:
         with engine.connect() as conn:
             total_rows = 0
             final_result = None
+            change_made = False
 
-            for q in query.split(";"):
-                if q.strip():
-                    result = conn.execute(text(q))
+            queries = [q.strip() for q in query.split(";") if q.strip()]
 
-                    # ✅ If SELECT query → fetch data with column names
-                    if q.strip().lower().startswith("select"):
-                        rows = result.fetchall()
-                        columns = result.keys()
-                        final_result = [columns] + rows
-                    else:
+            for q in queries:
+                result = conn.execute(text(q))
+
+                # ✅ If query returns rows (SELECT, SHOW, DESCRIBE)
+                if result.returns_rows:
+                    rows = result.fetchall()
+                    columns = list(result.keys())
+                    final_result = [columns] + rows
+
+                else:
+                    # ✅ Only count real changes
+                    if result.rowcount and result.rowcount > 0:
                         total_rows += result.rowcount
+                        change_made = True
 
             conn.commit()
 
+        # ✅ Return data if exists
         if final_result:
             return final_result
-        return f"✅ Done ({total_rows} rows affected)"
 
-    except Exception as e:
-        return f"❌ Query failed: {e}"
+        # ✅ Only show success if change happened
+        if change_made:
+            return f"✅ Changes applied ({total_rows} rows affected)"
+
+        # ✅ No change case
+        return "⚠️ No changes were made"
 
     except Exception as e:
         return f"❌ Query failed: {e}"
@@ -68,9 +78,19 @@ def get_schema():
     try:
         with engine.connect() as conn:
             result = conn.execute(text(
-                f"SELECT table_name FROM information_schema.tables WHERE table_schema='{DB_NAME}';"
+                f"""
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = '{DB_NAME}'
+                ORDER BY table_name;
+                """
             ))
-            tables = [row[0] for row in result.fetchall()]
-            return f"Tables in {DB_NAME}: {tables}"
+
+            schema = {}
+            for table, column in result.fetchall():
+                schema.setdefault(table, []).append(column)
+
+            return "\n".join([f"{t}: {', '.join(c)}" for t, c in schema.items()])
+
     except Exception as e:
         return f"Error fetching schema: {e}"
