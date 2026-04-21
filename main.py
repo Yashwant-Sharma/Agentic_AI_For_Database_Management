@@ -1,5 +1,7 @@
 from agent import agent_loop
 from db import get_schema
+from voice import speak
+
 
 print("🤖 Agentic AI Database Assistant")
 print(f"Current Database Schema:\n{get_schema()}\n")
@@ -29,3 +31,7 @@ while True:
                 print(row)
     else:
         print("📊 Result:", response)
+        
+#voice
+print("Agent is on")
+speak("What would you like to do?")
