@@ -1,6 +1,7 @@
 from langchain_community.llms import Ollama
 from db import run_query, get_schema
-from utils import validate_query
+from utils import requires_confirmation, validate_query
+import re
 
 llm = Ollama(model="llama3")
 
@@ -16,8 +17,8 @@ def clean_sql(response: str) -> str:
         parts = text.split("```")
         text = parts[1] if len(parts) > 1 else text
 
-    # remove common unwanted words
-    text = text.replace("sql", "").strip()
+    # remove standalone code-fence language label
+    text = re.sub(r"(?im)^\s*sql\s*$", "", text).strip()
 
     # extract only valid SQL lines
     lines = text.splitlines()
@@ -27,16 +28,24 @@ def clean_sql(response: str) -> str:
         line = line.strip()
         if line.lower().startswith((
             "select", "insert", "update",
-            "delete", "show", "describe"
+            "delete", "show", "describe",
+            "create", "alter", "drop", "use"
         )):
             sql_lines.append(line)
 
-    cleaned_sql = " ".join(sql_lines)
+    cleaned_sql = " ".join(sql_lines).strip()
+    if cleaned_sql:
+        return cleaned_sql
 
-    return cleaned_sql.strip()
+    # fallback: extract SQL that appears mid-line (e.g., "Here is SQL: SELECT ...")
+    pattern = re.compile(
+        r"(?is)\b(select|insert|update|delete|show|describe|create|alter|drop|use)\b.*?(?:;|$)"
+    )
+    matches = [match.group(0).strip() for match in pattern.finditer(text)]
+    return " ".join(matches).strip()
 
 
-def generate_sql(user_query):
+def generate_sql(user_query, schema_text):
     prompt = f"""
 You are a SQL generator for MySQL.
 
@@ -49,16 +58,16 @@ STRICT RULES:
 SPECIAL CASES:
 - show databases → SHOW DATABASES;
 - show tables → SHOW TABLES;
-- describe student → DESCRIBE student;
-- show data of project → SELECT * FROM project;
-- show data of student → SELECT * FROM student;
+- in project table show name of those who have age > 30 → SELECT name FROM project WHERE age > 30;
 
 GENERAL RULES:
-- Use ONLY tables from schema
+- Use ONLY tables from schema when querying tables
 - If multiple commands → separate with semicolon (;)
+- Support DDL and DML: CREATE, ALTER, DROP, INSERT, UPDATE, DELETE, SELECT
+- If user asks to create/delete database, return CREATE DATABASE / DROP DATABASE SQL
 
 Schema:
-{get_schema()}
+{schema_text}
 
 User Query:
 {user_query}
@@ -67,12 +76,13 @@ User Query:
     response = llm.invoke(prompt)
     sql = clean_sql(response)
 
-    # 🚨 hard safety fallback
+    # hard fallback to harmless read query
     if not sql.lower().startswith((
         "select", "insert", "update",
-        "delete", "show", "describe"
+        "delete", "show", "describe",
+        "create", "alter", "drop", "use"
     )):
-        return "SELECT * FROM project;"
+        return "SHOW DATABASES;"
 
     return sql
 
@@ -103,24 +113,20 @@ Response:
     return str(response).strip()
 
 
-def execute_multiple(sql_query):
-    queries = [q.strip() for q in sql_query.split(";") if q.strip()]
-    results = []
-
-    for q in queries:
-        res = run_query(q)
-        results.append(res)
-
-    return results if len(results) > 1 else results[0]
+def execute_sql(sql_query, db_config, database):
+    return run_query(sql_query, db_config=db_config, database=database)
 
 
-def agent_loop(user_query: str):
-    sql_query = generate_sql(user_query)
+def agent_loop(user_query: str, db_config, database):
+    schema_text = get_schema(db_config, database)
+    sql_query = generate_sql(user_query, schema_text)
 
     if not validate_query(sql_query):
         return "❌ Unsafe query detected!", ""
 
-    result = execute_multiple(sql_query)
+    if requires_confirmation(sql_query):
+        return None, sql_query
 
-    # explanation removed from UI flow
-    return result, ""
+    result = execute_sql(sql_query, db_config=db_config, database=database)
+
+    return result, sql_query
