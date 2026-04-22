@@ -121,6 +121,42 @@ def contains_column_definition(text: str):
     return "(" in text and ")" in text or "column" in normalized or "columns" in normalized
 
 
+def try_parse_insert_assignment(command_text: str):
+    """
+    Parse patterns like:
+    - insert name=tarun age=18 score=49 into project table
+    - insert name=tarun,age=18,score=49 into project
+    """
+    lower = command_text.lower()
+    if not lower.startswith("insert") or "=" not in command_text or "into" not in lower:
+        return None
+
+    table_match = re.search(r"\binto\s+`?([a-zA-Z0-9_]+)`?(?:\s+table)?\b", command_text, flags=re.IGNORECASE)
+    if not table_match:
+        return None
+    table_name = table_match.group(1)
+
+    assignments_part = command_text[: table_match.start()]
+    assignments = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^,\s]+)", assignments_part)
+    if not assignments:
+        return None
+
+    columns = []
+    values = []
+    for column, raw_value in assignments:
+        value = raw_value.strip().strip("'").strip('"')
+        columns.append(column)
+        if re.fullmatch(r"-?\d+(\.\d+)?", value):
+            values.append(value)
+        else:
+            safe_value = value.replace("'", "''")
+            values.append(f"'{safe_value}'")
+
+    columns_sql = ", ".join(columns)
+    values_sql = ", ".join(values)
+    return f"INSERT INTO {table_name} ({columns_sql}) VALUES ({values_sql});"
+
+
 def queue_table_create_action(table_name: str, columns_sql: str, command_text: str):
     sql = f"CREATE TABLE {table_name} ({columns_sql});"
     queue_or_preview_action(command_text, sql)
@@ -232,6 +268,12 @@ def process_command(command_text: str):
                 f"What columns should `{table_name}` have? You can also say `make by yourself`."
             )
             return
+
+    parsed_insert_sql = try_parse_insert_assignment(command_text)
+    if parsed_insert_sql:
+        queue_or_preview_action(command_text, parsed_insert_sql)
+        add_assistant_message("I parsed your insert command and prepared it for preview/confirmation.")
+        return
 
     result, sql_query = agent_loop(
         command_text,
@@ -388,7 +430,7 @@ if st.session_state.pending_actions:
 
 history_col, clear_col = st.columns([3, 1])
 with history_col:
-    st.subheader("🗣️ Conversation")
+    st.subheader("📊 Query History")
 with clear_col:
     if st.button("🧹 Clear History"):
         st.session_state.chat_history = []
@@ -397,14 +439,6 @@ with clear_col:
         st.session_state.pending_prompt = None
         st.session_state.change_log = []
         st.rerun()
-
-if not st.session_state.chat_history:
-    st.info("Start with a message like: `show databases` or `create database`.")
-for message in st.session_state.chat_history[-10:]:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
-
-st.subheader("📊 Query History")
 for entry in reversed(st.session_state.history):
     with st.expander(f"💬 {entry['query']}", expanded=False):
         if entry.get("sql"):
